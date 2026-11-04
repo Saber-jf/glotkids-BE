@@ -1,0 +1,6 @@
+node_modules
+dist
+# the content, the files and the keys: never in git
+data
+data.*
+.env

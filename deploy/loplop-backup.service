@@ -1,0 +1,13 @@
+[Unit]
+Description=Loplop gunluk yedek
+After=loplop.service
+
+[Service]
+Type=oneshot
+User=loplop
+WorkingDirectory=/srv/loplop-server
+EnvironmentFile=/etc/loplop/server.env
+Environment=DATA_DIR=/var/lib/loplop
+ExecStart=/usr/bin/npx tsx tools/backup.ts --out /var/backups/loplop
+# off-site copy (configure rclone once as the loplop user):
+ExecStartPost=/bin/sh -c 'rclone copy /var/backups/loplop yedek-uzak:loplop --include "*.enc" && find /var/backups/loplop -name "*.enc" -mtime +14 -delete'

@@ -1,0 +1,39 @@
+{
+  "name": "loplop-server",
+  "version": "0.1.0",
+  "description": "Tavşanın Mutfağı — sunucu (yönetim paneli için içerik, medya ve yapay zekâ geçitleri; PostgreSQL)",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx test/units.ts && tsx test/e2e.ts && tsx test/accounts.ts && tsx test/pg.ts",
+    "test:units": "tsx test/units.ts",
+    "test:e2e": "tsx test/e2e.ts",
+    "test:pg": "tsx test/pg.ts",
+    "backup": "tsx tools/backup.ts",
+    "restore": "tsx tools/restore.ts",
+    "restore-check": "tsx tools/restore-check.ts",
+    "db:copy": "tsx tools/db-copy.ts",
+    "auth:fake": "tsx tools/fake-supabase.ts",
+    "test:accounts": "tsx test/accounts.ts"
+  },
+  "type": "module",
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@fastify/multipart": "^10.1.3",
+    "@types/opentype.js": "^1.3.10",
+    "fastify": "^5.12.5",
+    "jose": "^6.2.12",
+    "opentype.js": "^1.3.4",
+    "pg": "^8.23.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "private": true
+}

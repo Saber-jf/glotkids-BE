@@ -1,0 +1,27 @@
+# systemd: ONE server process (decision 4/7). Restart=always brings it back
+# after a crash; there is never a second instance on the same data folder
+# (the server also refuses to start if one holds `server.lock`).
+[Unit]
+Description=Loplop icerik sunucusu
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=loplop
+WorkingDirectory=/srv/loplop-server
+# ADMIN_TOKEN, BACKUP_PASSPHRASE … live in this root-only file, never in git
+EnvironmentFile=/etc/loplop/server.env
+Environment=NODE_ENV=production HOST=127.0.0.1 PORT=8787 DATA_DIR=/var/lib/loplop
+ExecStart=/usr/bin/node dist/server.js
+Restart=always
+RestartSec=3
+# a deploy stops the old process completely before the new one starts
+KillMode=control-group
+TimeoutStopSec=20
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/loplop /var/backups/loplop
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

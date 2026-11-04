@@ -1,0 +1,56 @@
+# Loplop — three sites, one server process (decision 4, 2026-10-16).
+# Replace the three domain names and the e-mail. Caddy gets the HTTPS
+# certificates itself. The server listens only on 127.0.0.1:8787.
+{
+	email ops@ORNEK.org
+}
+
+# 1 · What the phone reads: published releases and nothing else.
+api.ORNEK.org {
+	encode zstd gzip
+	@public path /api/app/* /api/health
+	handle @public {
+		reverse_proxy 127.0.0.1:8787
+	}
+	# the panel's endpoints are not reachable from this address at all
+	handle {
+		respond "Yok" 404
+	}
+}
+
+# 2 · Files by content hash: immutable, a media origin of its own (CDN_BASE).
+media.ORNEK.org {
+	@cdn path /cdn/*
+	handle @cdn {
+		reverse_proxy 127.0.0.1:8787
+	}
+	handle {
+		respond "Yok" 404
+	}
+}
+
+# 3 · The panel: its built files, and the admin API behind the same gate.
+# The gate here (basic auth) covers the panel AND /api/* -- the admin API
+# is never reachable without passing it, on top of ADMIN_TOKEN. For MFA put
+# an identity proxy in front (Cloudflare Access, Authelia, oauth2-proxy) and
+# replace `basic_auth` with `forward_auth` to it.
+panel.ORNEK.org {
+	encode zstd gzip
+	basic_auth {
+		# caddy hash-password  →  paste the hash here; one line per person
+		yonetici $2a$14$DEGISTIRIN_BU_BIR_ORNEK_HASHTIR
+	}
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8787
+	}
+	handle {
+		root * /srv/loplop-admin/dist
+		try_files {path} /index.html
+		file_server
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+	}
+}
