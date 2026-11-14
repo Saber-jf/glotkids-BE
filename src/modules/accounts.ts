@@ -32,7 +32,7 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { config } from "../config.js";
 import { all, one, run, tx } from "../storage/sql.js";
-import { accountsOn, AuthApiError, deleteUser, ensureUser, getUser, listUsers, setBanned,
+import { accountsOn, AuthApiError, deleteUser, ensureUser, getUser, listUsers, MIN_PASSWORD, setBanned, setPassword,
          type AuthUser, type Who } from "../storage/supabase.js";
 import { callerOf, ownerOf } from "./auth.js";
 
@@ -184,8 +184,10 @@ export async function accountRoutes(app: FastifyInstance) {
     seeded: config.adminEmails.includes(a.email) })));
 
   app.post("/admins", async (req, reply) => {
-    const b = z.object({ email: emailOk, name: z.string().trim().max(80).default("") }).safeParse(req.body);
-    if (!b.success) return reply.code(400).send({ error: "Geçerli bir e-posta yazın." });
+    const b = z.object({ email: emailOk, name: z.string().trim().max(80).default(""),
+                         /* the panel signs in with a password (2026-11-14): the new admin's first one */
+                         password: z.string().min(MIN_PASSWORD).max(200).optional() }).safeParse(req.body);
+    if (!b.success) return reply.code(400).send({ error: `Geçerli bir e-posta yazın; şifre en az ${MIN_PASSWORD} karakter olmalı.` });
     const me = callerOf(req).actor;
     const r = await tx(async () => {
       if (await one("SELECT email FROM admins WHERE email = ?", b.data.email)) return null;
@@ -194,14 +196,33 @@ export async function accountRoutes(app: FastifyInstance) {
       return true;
     });
     if (!r) return reply.code(409).send({ error: "Bu e-posta zaten yöneticiler arasında." });
-    /* the account, confirmed, so the code sign-in works at once (outside the transaction: the network) */
+    /* the account, confirmed -- with its password when one was given -- so the
+       sign-in works at once (outside the transaction: the network) */
     let account: "created" | "existing" | "later" = "later";
+    let password = false;
     if (accountsOn()) {
-      try { account = (await ensureUser(b.data.email)).created ? "created" : "existing"; }
-      catch { account = "later"; }
+      try {
+        if (b.data.password) { account = (await setPassword(b.data.email, b.data.password)).created ? "created" : "existing"; password = true; }
+        else account = (await ensureUser(b.data.email)).created ? "created" : "existing";
+      } catch { account = "later"; }
+      if (password) await audit(me, "admin.password", b.data.email, "eklerken");
     }
     reply.code(201);
-    return { email: b.data.email, account };
+    return { email: b.data.email, account, password };
+  });
+
+  /* an admin's password, set by an admin (their own, or another's who forgot
+     it); the password goes to Supabase only, the audit says only that it was set */
+  app.post("/admins/:email/password", async (req, reply) => {
+    const email = String((req.params as { email: string }).email).trim().toLowerCase();
+    const b = z.object({ password: z.string().min(MIN_PASSWORD).max(200) }).safeParse(req.body);
+    if (!b.success) return reply.code(400).send({ error: `Şifre en az ${MIN_PASSWORD} karakter olmalı.` });
+    if (!accountsOn()) return reply.code(400).send({ error: "Hesaplar bu sunucuda kurulmadı." });
+    if (!(await one("SELECT email FROM admins WHERE email = ?", email))) return reply.code(404).send({ error: "Böyle bir yönetici yok." });
+    try { await setPassword(email, b.data.password); }
+    catch (e) { return reply.code(e instanceof AuthApiError ? Math.max(400, Math.min(502, e.status)) : 502).send({ error: (e as Error).message }); }
+    await audit(callerOf(req).actor, "admin.password", email, "");
+    return { ok: true };
   });
 
   app.delete("/admins/:email", (req, reply) => tx(async () => {

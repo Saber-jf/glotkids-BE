@@ -112,6 +112,27 @@ section("3 · yöneticiler");
   ok("ADMIN_EMAILS'tekini panelden çıkaramaz", (await j("DELETE", `/api/admins/${encodeURIComponent("boss@ornek.test")}`, ayse)).status === 400);
   ok("çıkarılır", (await j("DELETE", `/api/admins/${encodeURIComponent("yeni.yonetici@ornek.test")}`, boss)).status === 200);
   ok("çıkarılan artık giremez (403)", (await j("GET", "/api/words", ayse)).status === 403);
+
+  /* the panel's password sign-in (2026-11-14) */
+  const pwLogin = async (email: string, password: string) => (await fetch(`${fake.url}/auth/v1/token?grant_type=password`, {
+    method: "POST", headers: { apikey: fake.anonKey, "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) })).status;
+  const withPw = await j("POST", "/api/admins", boss, { email: "sifreli@ornek.test", password: "ilk-sifre-1" });
+  ok("ilk şifreyle eklenir; o şifreyle girer", withPw.status === 201 && withPw.body.password === true && (await pwLogin("sifreli@ornek.test", "ilk-sifre-1")) === 200);
+  ok("kısa ilk şifre: 400", (await j("POST", "/api/admins", boss, { email: "kisa@ornek.test", password: "1234567" })).status === 400);
+  const set = await j("POST", `/api/admins/${encodeURIComponent("sifreli@ornek.test")}/password`, boss, { password: "yeni-sifre-2" });
+  ok("şifre belirlenir: eskisi girmez, yenisi girer", set.status === 200 && (await pwLogin("sifreli@ornek.test", "ilk-sifre-1")) === 400
+     && (await pwLogin("sifreli@ornek.test", "yeni-sifre-2")) === 200);
+  ok("kısa şifre: 400", (await j("POST", `/api/admins/${encodeURIComponent("sifreli@ornek.test")}/password`, boss, { password: "kisa" })).status === 400);
+  ok("yönetici olmayanın şifresi buradan belirlenmez: 404",
+     (await j("POST", `/api/admins/${encodeURIComponent("anne@ornek.test")}/password`, boss, { password: "yeni-sifre-3" })).status === 404);
+  ok("anahtarsız/yöneticisiz şifre belirlenmez (401)",
+     (await j("POST", `/api/admins/${encodeURIComponent("sifreli@ornek.test")}/password`, "", { password: "yeni-sifre-4" })).status === 401);
+  ok("sunucunun ADMIN_EMAILS yöneticisi de şifre alır", (await j("POST", `/api/admins/${encodeURIComponent("boss@ornek.test")}/password`, boss, { password: "patron-sifre" })).status === 200
+     && (await pwLogin("boss@ornek.test", "patron-sifre")) === 200);
+  const logged = await j("GET", "/api/audit", boss);
+  ok("işlem kaydında 'şifre belirledi', şifrenin kendisi yok", logged.status === 200 && JSON.stringify(logged.body).includes("admin.password")
+     && !/ilk-sifre-1|yeni-sifre-2|patron-sifre/.test(JSON.stringify(logged.body)));
+  ok("çıkarılır", (await j("DELETE", `/api/admins/${encodeURIComponent("sifreli@ornek.test")}`, boss)).status === 200);
 }
 
 section("4 · ebeveyn hesabı ve ilerleme yedeği");

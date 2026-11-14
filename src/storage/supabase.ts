@@ -97,7 +97,11 @@ async function adminRaw(path: string, init: RequestInit = {}): Promise<{ body: u
   try {
     r = await fetch(`${config.supabase.url}/auth/v1${path}`, {
       ...init,
-      headers: { apikey: config.supabase.serviceKey, Authorization: `Bearer ${config.supabase.serviceKey}`,
+      /* the new secret keys (`sb_secret_…`) are not JWTs: they go in `apikey`
+         only, never as a Bearer (Supabase rejects or rewrites that). The old
+         service_role key is a JWT and keeps both, as before. */
+      headers: { apikey: config.supabase.serviceKey,
+                 ...(config.supabase.serviceKey.startsWith("sb_") ? {} : { Authorization: `Bearer ${config.supabase.serviceKey}` }),
                  "Content-Type": "application/json", ...(init.headers ?? {}) },
       signal: AbortSignal.timeout(20_000),
     });
@@ -137,6 +141,36 @@ export async function ensureUser(email: string): Promise<{ created: boolean }> {
     if (e instanceof AuthApiError && (e.status === 422 || e.status === 409)) return { created: false };
     throw e;
   }
+}
+
+/** the account of this e-mail, looked for page by page (the admin API has no lookup by e-mail) */
+export async function findUserByEmail(email: string): Promise<AuthUser | null> {
+  const want = email.trim().toLowerCase();
+  for (let page = 1; page <= 200; page++) {
+    const { users } = await listUsers(page, 200);
+    const u = users.find((x) => x.email?.toLowerCase() === want);
+    if (u) return u;
+    if (users.length < 200) return null;
+  }
+  return null;
+}
+
+/** the minimum a panel password must be (Supabase's own default is 6) */
+export const MIN_PASSWORD = 8;
+
+/**
+ * An admin's password (2026-11-14: the panel signs in with e-mail and
+ * password -- the e-mail code needs a template the project's role could not
+ * change). The account is made, confirmed, if there is none. The password
+ * goes to Supabase and nowhere else: never logged, never stored here.
+ */
+export async function setPassword(email: string, password: string): Promise<{ created: boolean }> {
+  if (password.length < MIN_PASSWORD) throw new AuthApiError(400, `Şifre en az ${MIN_PASSWORD} karakter olmalı.`);
+  const { created } = await ensureUser(email);
+  const u = await findUserByEmail(email);
+  if (!u) throw new AuthApiError(404, "Bu e-postanın hesabı bulunamadı.");
+  await admin(`/admin/users/${encodeURIComponent(u.id)}`, { method: "PUT", body: JSON.stringify({ password }) });
+  return { created };
 }
 
 /** a ban for (practically) ever, or none */

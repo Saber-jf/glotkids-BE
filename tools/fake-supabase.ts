@@ -6,11 +6,11 @@
  *   /auth/v1/.well-known/jwks.json      the public key its tokens are signed with (ES256)
  *   POST /auth/v1/otp                   a 6-digit code "by e-mail" (here: printed, and kept)
  *   POST /auth/v1/verify                the code -> a session
- *   POST /auth/v1/token?grant_type=     refresh_token · pkce · id_token (Apple)
+ *   POST /auth/v1/token?grant_type=     password · refresh_token · pkce · id_token (Apple)
  *   GET  /auth/v1/authorize?provider=   Google/Apple in a browser: no consent page,
  *                                       straight back to redirect_to with a code
  *   GET  /auth/v1/user · POST /auth/v1/logout
- *   /auth/v1/admin/users[/:id]          list, create, read, ban, delete (service key)
+ *   /auth/v1/admin/users[/:id]          list, create, read, ban, set a password, delete (service key)
  *
  *   npm run auth:fake        on 127.0.0.1:54321; prints the .env lines to use
  *                            and every code it "sends"
@@ -25,6 +25,8 @@ import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 export interface FakeUser {
   id: string; email: string; provider: string; createdAt: number; lastSignInAt: number | null;
   bannedUntil: number | null; confirmed: boolean;
+  /** the panel's password sign-in (2026-11-14); a fake, kept as it is */
+  password?: string;
 }
 export interface FakeSupabase {
   url: string; anonKey: string; serviceKey: string;
@@ -124,7 +126,9 @@ export async function startFakeSupabase(opts: { port?: number; log?: (m: string)
         const email = String(b.email ?? "").toLowerCase();
         if (!email) return err(res, 400, "email required");
         if (byEmail(email)) return err(res, 422, "A user with this email address has already been registered", "email_exists");
-        return send(res, 200, raw(make(email)));
+        const nu = make(email);
+        if (typeof b.password === "string") nu.password = b.password;
+        return send(res, 200, raw(nu));
       }
       const usr = users.get(decodeURIComponent(m[1] ?? ""));
       if (!usr) return err(res, 404, "User not found", "user_not_found");
@@ -132,6 +136,7 @@ export async function startFakeSupabase(opts: { port?: number; log?: (m: string)
       if (req.method === "DELETE") { users.delete(usr.id); return send(res, 200, {}); }
       if (req.method === "PUT") {
         const b = await body(req);
+        if (typeof b.password === "string") usr.password = b.password;
         if (b.ban_duration === "none") usr.bannedUntil = null;
         else if (typeof b.ban_duration === "string") usr.bannedUntil = Date.now() + (parseInt(b.ban_duration, 10) || 1) * 3_600_000;
         return send(res, 200, raw(usr));
@@ -166,7 +171,11 @@ export async function startFakeSupabase(opts: { port?: number; log?: (m: string)
       const grant = u.searchParams.get("grant_type");
       const b = await body(req);
       let usr: FakeUser | undefined;
-      if (grant === "refresh_token") {
+      if (grant === "password") {
+        const cand = byEmail(String(b.email ?? ""));
+        if (!cand || !cand.password || cand.password !== String(b.password ?? "")) return err(res, 400, "Invalid login credentials", "invalid_credentials");
+        usr = cand;
+      } else if (grant === "refresh_token") {
         const id = refresh.get(String(b.refresh_token ?? ""));
         refresh.delete(String(b.refresh_token ?? ""));
         usr = id ? users.get(id) : undefined;

@@ -16,7 +16,8 @@
     "restore-check": "tsx tools/restore-check.ts",
     "db:copy": "tsx tools/db-copy.ts",
     "auth:fake": "tsx tools/fake-supabase.ts",
-    "test:accounts": "tsx test/accounts.ts"
+    "test:accounts": "tsx test/accounts.ts",
+    "admin:password": "tsx tools/admin-password.ts"
   },
   "type": "module",
   "dependencies": {
