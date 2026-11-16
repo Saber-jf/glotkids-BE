@@ -17,7 +17,8 @@ services:
     environment:
       # PostgreSQL: Supabase "Session pooler" (5432) or Direct -- not the transaction pooler (6543)
       DATABASE_URL: ${DATABASE_URL:?}
-      DATABASE_SSL: ${DATABASE_SSL:-require}
+      # empty: the URL's sslmode= decides (Supabase: ?sslmode=require; Coolify's own Postgres: none)
+      DATABASE_SSL: ${DATABASE_SSL:-}
       DATABASE_POOL: ${DATABASE_POOL:-10}
       # openssl rand -hex 32
       ADMIN_TOKEN: ${ADMIN_TOKEN:?}
