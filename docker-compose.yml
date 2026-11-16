@@ -1,0 +1,48 @@
+# Coolify: "Docker Compose" build pack, this file. Domain on the `api` service:
+#   https://glotkids-api.imtiyaz.io:8787
+# Compose stops the old container before starting the new one: never two
+# servers on the same data folder or database (docs/URETIM-KURULUMU.md).
+services:
+  api:
+    build: .
+    # fixed: server.lock records the host; a container killed without a clean
+    # stop leaves its lock, and the next one (same host, PID 1) takes it over
+    hostname: glotkids-api
+    restart: unless-stopped
+    stop_grace_period: 20s
+    expose:
+      - "8787"
+    volumes:
+      - glotkids-data:/data
+    environment:
+      # PostgreSQL: Supabase "Session pooler" (5432) or Direct -- not the transaction pooler (6543)
+      DATABASE_URL: ${DATABASE_URL:?}
+      DATABASE_SSL: ${DATABASE_SSL:-require}
+      DATABASE_POOL: ${DATABASE_POOL:-10}
+      # openssl rand -hex 32
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?}
+      # openssl rand -hex 32 -- keep a copy off the server
+      BACKUP_PASSPHRASE: ${BACKUP_PASSPHRASE:-}
+      # empty: the manifest names /cdn/... on this API address
+      CDN_BASE: ${CDN_BASE:-}
+      DISK_WARN_BYTES: ${DISK_WARN_BYTES:-5368709120}
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      AUTH_PROVIDERS: ${AUTH_PROVIDERS:-email,google,apple}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      # no app checkout next to the server: the inventory comes by PUT /api/inventory
+      APP_DIR: /nonexistent
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/api/health').then(r=>r.json()).then(j=>process.exit(j.database&&j.database.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+
+volumes:
+  glotkids-data:
