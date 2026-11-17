@@ -633,6 +633,56 @@ try {
     ok("palet yoksa taslakta palet bolumu yok (uygulamanin kendi renkleri)", none.body.manifest.palette === undefined);
   }
 
+  console.log("\n── Şarkı videoları (2026-11-17) ──");
+  {
+    const film = await upload(path.join(appDir, "src/assets/video/sample-4x3.mp4"), "video/mp4");
+    const pic = await upload(path.join(appDir, "src/assets/ui/hand.png"), "image/png");
+    const list0 = (await j("GET", "/api/song-videos")).body;
+    ok("kategoriler: uygulamanin kendi alti serisi", ["kitchen", "animals", "actions"].every((id) => list0.categories.some((c: { id: string }) => c.id === id)));
+    const bad = await j("POST", "/api/song-videos", { title: "Yok", category: "boyle-bir-sey" });
+    ok("olmayan kategori reddedilir", bad.status === 400);
+    const mk = await j("POST", "/api/song-videos", { title: "Mutfak şarkısı", category: "kitchen" });
+    ok("yeni video taslak, eksikleri hata", mk.status === 201 && mk.body.status === "draft"
+       && mk.body.issues.some((i: { level: string; text: string }) => i.level === "error" && /Video yüklenmedi/.test(i.text)));
+    const wrongKind = await j("PATCH", `/api/song-videos/${mk.body.id}`, { video: pic.id }, { "If-Match": `"${mk.body.updatedAt}"` });
+    ok("resim video yerine konamaz", wrongKind.status === 400);
+    const filled = await j("PATCH", `/api/song-videos/${mk.body.id}`, { video: film.id, poster: pic.id, durationMs: 62000 }, { "If-Match": `"${mk.body.updatedAt}"` });
+    ok("video ve kapak eklendi, yalniz hak onayi eksik", filled.status === 200 && filled.body.issues.filter((i: { level: string }) => i.level === "error").length === 1
+       && filled.body.issues.some((i: { text: string }) => /kullanım hakkı/.test(i.text)), JSON.stringify(filled.body.issues));
+    const refused = await j("PATCH", `/api/song-videos/${mk.body.id}`, { status: "live" }, { "If-Match": `"${filled.body.updatedAt}"` });
+    ok("hak onayi olmadan uygulamaya konamaz", refused.status === 400);
+    const stale = await j("PATCH", `/api/song-videos/${mk.body.id}`, { title: "x" }, { "If-Match": `"${mk.body.updatedAt}"` });
+    ok("eski surume dayanan yazim reddedilir (If-Match)", stale.status === 409);
+    const live = await j("PATCH", `/api/song-videos/${mk.body.id}`, { rights: { confirmed: true, owner: "Biz", note: "" }, status: "live" },
+                         { "If-Match": `"${filled.body.updatedAt}"` });
+    ok("onaylaninca uygulamaya girer", live.status === 200 && live.body.status === "live", JSON.stringify(live.body.issues));
+    const always = await j("POST", "/api/song-videos", { title: "Hep açık" });
+    const a2 = await j("PATCH", `/api/song-videos/${always.body.id}`, { video: film.id, poster: pic.id, rights: { confirmed: true, owner: "Biz", note: "" }, status: "live" },
+                       { "If-Match": `"${always.body.updatedAt}"` });
+    ok("kategorisiz video hep acik (category null)", a2.status === 200 && a2.body.category === null);
+    const d = await j("GET", "/api/releases/draft");
+    const sv = d.body.manifest.songVideos;
+    ok("taslakta iki video, sirasiyla, filmler 'lazy'", sv?.list?.length === 2 && sv.list[0].id === mk.body.id && sv.list[0].category === "kitchen"
+       && sv.lazy.length === 1 && sv.lazy[0] === film.id && d.body.counts.songVideos === 2 && d.body.counts.lazyBytes > 0, JSON.stringify(sv));
+    const remote = await import("../../loplop/src/core/remote.ts");
+    const m = { ...d.body.manifest, release: 1 };
+    ok("manifest butun (uygulamanin denetimi)", remote.manifestProblem(m) === null);
+    const wanted = remote.wantedFiles(m, new Set()).map((f: { id: string }) => f.id);
+    ok("telefon filmi beklemez, kapagi bekler", !wanted.includes(film.id) && wanted.includes(pic.id));
+    const read = remote.readManifest(m, (id: string) => `file:///x/${id}`);
+    ok("uygulamanin okuyucusu videolari alir", read.songVideos?.length === 2 && read.songVideos[0].poster === `file:///x/${pic.id}`
+       && read.songVideos[0].video.asset === film.id && /\/cdn\//.test(read.songVideos[0].video.url), JSON.stringify(read.songVideos?.[0]));
+    const usage = await j("GET", `/api/assets/${film.id}/usage`);
+    ok("dosyanin kullanimi gorunur (silinemez)", JSON.stringify(usage.body).includes("Şarkı videosu"), JSON.stringify(usage.body).slice(0, 160));
+    const pub = await j("POST", "/api/releases", { note: "videolar", channels: ["test"], expect: d.body.fingerprint });
+    ok("yayinlandi", pub.status === 200 || pub.status === 201, JSON.stringify(pub.body).slice(0, 200));
+    const phone = await j("GET", "/api/app/manifest?build=1&schema=1&channel=test");
+    ok("telefona videolar ve dosyalari gider", phone.body.songVideos?.list?.length === 2 && !!phone.body.assets[film.id] && !!phone.body.assets[pic.id]);
+    for (const x of (await j("GET", "/api/song-videos")).body.list) await j("DELETE", `/api/song-videos/${x.id}`);
+    const none = await j("GET", "/api/releases/draft");
+    ok("video yoksa taslakta bolum yok", none.body.manifest.songVideos === undefined);
+  }
+
   console.log("\n── Boyalı haritayı bildiren sürüm (2026-11-03) ──");
   {
     /* LAST: it makes the newest build one that cannot lay rows */

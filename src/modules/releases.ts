@@ -44,6 +44,7 @@ import { checkPalette, livePalette } from "./palettes.js";
 import { PaletteColors } from "./inventory.js";
 import { checkFont, liveFonts, readFont } from "./fonts.js";
 import { checkSong, songFacts } from "./songs.js";
+import { checkSongVideo, loadSongVideos, videoFacts } from "./songvideos.js";
 
 export const CHANNELS = ["test", "production"] as const;
 export type Channel = (typeof CHANNELS)[number];
@@ -102,6 +103,18 @@ export interface Manifest {
   /** THE COLOUR PALETTE (the panel's "Renk paleti"): the one in play, colours
    *  by role. Absent: the app's own. A phone of a build before `since` does not get it */
   palette?: ManifestPalette;
+  /** THE SONG FILMS (the panel's "Şarkı videoları", the app's "Şarkılar"
+   *  tab), in order. Their POSTERS are downloaded with the release; their
+   *  FILMS (`lazy`) are not -- a phone streams one the first time it is
+   *  watched and keeps it. A phone of a build before `since` does not get it */
+  songVideos?: ManifestSongVideos;
+}
+
+export interface ManifestSongVideos {
+  since: number;
+  list: { id: string; title: string; video: string; poster: string; category: string | null; fit?: "contain" }[];
+  /** the asset ids a phone does not wait for (the films) */
+  lazy: string[];
 }
 
 export interface ManifestPalette { since: number; id: string; name: string; colors: PaletteColors }
@@ -146,7 +159,7 @@ export interface ManifestSlide {
   pack?: string;
 }
 
-export interface DraftIssue extends Issue { item: string; kind: "game" | "category" | "clip" | "asset" | "roadmap" | "pack" | "mascot" | "song" | "font" | "palette" }
+export interface DraftIssue extends Issue { item: string; kind: "game" | "category" | "clip" | "asset" | "roadmap" | "pack" | "mascot" | "song" | "font" | "palette" | "songvideo" }
 
 /** a category step as a phone gets it: a game step names its engine and title
  *  itself, so it plays whether its game is on the menu, hidden, or one of the
@@ -421,6 +434,20 @@ export async function buildDraft(): Promise<{ manifest: Manifest; issues: DraftI
     const c = PaletteColors.safeParse(lp.colors);
     if (pinv && c.success && !xs.some((i) => i.level === "error")) palette = { since: pinv.since, id: lp.id, name: lp.name.trim(), colors: c.data };
   }
+  /* the song films in play, in order, only whole ones (`checkSongVideo`) */
+  const vinv = inv?.songVideos;
+  const vfacts = await videoFacts();
+  const filmList: ManifestSongVideos["list"] = [];
+  for (const v of (await loadSongVideos()).filter((x) => x.status === "live")) {
+    const xs = checkSongVideo(v, vfacts);
+    xs.forEach((i) => issues.push({ ...i, item: v.id, kind: "songvideo" }));
+    if (!vinv || xs.some((i) => i.level === "error")) continue;
+    const video = use(v.video), poster = use(v.poster);
+    if (!video || !poster) continue;
+    filmList.push({ id: v.id, title: v.title.trim(), video, poster, category: v.category, ...(v.fit === "contain" ? { fit: "contain" as const } : {}) });
+  }
+  const songVideos: ManifestSongVideos | null = vinv && filmList.length
+    ? { since: vinv.since, list: filmList, lazy: [...new Set(filmList.map((x) => x.video))] } : null;
   /* the app's own names that a mascot in play replaced */
   const renamed = (minv?.builtin ?? []).filter((b) => mascotList.some((x) => x.role === b.role && x.name !== b.name)).map((b) => b.name);
 
@@ -527,6 +554,7 @@ export async function buildDraft(): Promise<{ manifest: Manifest; issues: DraftI
                 ...(mascots ? { mascots } : {}),
                 ...(typography ? { typography } : {}),
                 ...(palette ? { palette } : {}),
+                ...(songVideos ? { songVideos } : {}),
                 ...(songList.length && inv?.songs ? { songs: { since: inv.songs.since, list: songList } } : {}) },
     issues,
   };
@@ -558,6 +586,7 @@ export function diff(a: Manifest | null, b: Manifest): Diff {
     ["şarkı", (m) => new Map((m.songs?.list ?? []).map((x) => [x.stop, { ...x, asset: fp(m, x.asset) }]))],
     ["yazı tipi", (m) => new Map((m.typography?.faces ?? []).map((x) => [x.role, { ...x, asset: fp(m, x.asset) }]))],
     ["renk paleti", (m) => new Map(m.palette ? [[m.palette.name || m.palette.id, m.palette.colors]] : [])],
+    ["şarkı videosu", (m) => new Map((m.songVideos?.list ?? []).map((x, i) => [x.id, { ...x, video: fp(m, x.video), poster: fp(m, x.poster), at: i }]))],
   ];
   for (const [label, of] of groups) {
     const x = a ? of(a) : new Map(), y = of(b);
@@ -686,7 +715,7 @@ export function forBuild(m: Manifest, build: number): Manifest {
   const packs = (m.packs ?? []).filter((p) => p.lands.every((id) => slides.some((sl) => sl.id === id)))
     .map((p) => ({ ...p, assets: p.assets.filter((id) => !!assets[id]) }));
   const cats = categories.filter((c) => !c.pack || packs.some((p) => p.id === c.pack));
-  const { roadmap: _r, packs: _p, mascots: _m, songs: _s, typography: _t, palette: _c, ...rest } = m;
+  const { roadmap: _r, packs: _p, mascots: _m, songs: _s, typography: _t, palette: _c, songVideos: _v, ...rest } = m;
   /* the palette, if this build draws one (an older one keeps its own colours) */
   const palette = m.palette && build >= m.palette.since && inv?.palette ? m.palette : null;
   /* the songs of the app's own music stops, if this build plays them */
@@ -698,13 +727,17 @@ export function forBuild(m: Manifest, build: number): Manifest {
   /* the fonts, if this build draws them (an older one keeps its own faces) */
   const typography = m.typography && build >= m.typography.since && inv?.typography ? m.typography : null;
   if (typography) typography.faces.forEach((x) => used.add(x.asset));
+  /* the song films, if this build has the tab (an older one has nowhere to show them) */
+  const songVideos = m.songVideos && build >= m.songVideos.since && inv?.songVideos ? m.songVideos : null;
+  if (songVideos) songVideos.list.forEach((x) => { used.add(x.video); used.add(x.poster); });
   return { ...rest, games, categories: cats, sets, words,
-           assets: mascots || songs || typography ? Object.fromEntries(Object.entries(m.assets).filter(([id]) => used.has(id))) : assets,
+           assets: mascots || songs || typography || songVideos ? Object.fromEntries(Object.entries(m.assets).filter(([id]) => used.has(id))) : assets,
            ...(slides.length ? { roadmap: { since: m.roadmap!.since, slides } } : {}),
            ...(packs.length ? { packs } : {}),
            ...(mascots ? { mascots } : {}),
            ...(typography ? { typography } : {}),
            ...(palette ? { palette } : {}),
+           ...(songVideos ? { songVideos } : {}),
            ...(songs ? { songs } : {}) };
 }
 
@@ -733,6 +766,9 @@ export async function releaseRoutes(app: FastifyInstance) {
                 mascots: manifest.mascots?.list.length ?? 0,
                 fonts: manifest.typography?.faces.length ?? 0,
                 palette: manifest.palette?.name ?? "",
+                songVideos: manifest.songVideos?.list.length ?? 0,
+                /* what every phone downloads before it switches: the films come later */
+                lazyBytes: (manifest.songVideos?.lazy ?? []).reduce((n, id) => n + (manifest.assets[id]?.size ?? 0), 0),
                 bytes: Object.values(manifest.assets).reduce((n, a) => n + a.size, 0) },
     };
   });

@@ -150,6 +150,8 @@ export const Inventory = z.object({
   typography: ITypography.optional(),
   /** the app's colour palette: an older app's inventory has none, and no release brings it one */
   palette: IPalette.optional(),
+  /** the app's "Şarkılar" tab: an older app's inventory has none, and no release brings it films */
+  songVideos: z.object({ since: z.number().int() }).optional(),
 });
 export type InventoryDoc = z.infer<typeof Inventory>;
 export type TemplateInfo = z.infer<typeof Template>;

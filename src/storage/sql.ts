@@ -658,6 +658,30 @@ export const MIGRATIONS: string[] = [
   );
   CREATE UNIQUE INDEX palettes_one_live ON palettes(status) WHERE status = 'live';
   `,
+  /* 7 (2026-11-17): SONG FILMS (the panel's "Şarkı videoları"): the films of
+     the app's "Şarkılar" tab -- a finished MP4 with its song in it, a poster
+     for its card, and the category whose map row opens it (NULL: always
+     open). Many may be live: the tab is a list. */
+  `
+  CREATE TABLE song_videos (
+    id          TEXT PRIMARY KEY,
+    title       TEXT NOT NULL,
+    video       TEXT REFERENCES assets(id) ON DELETE SET NULL,
+    poster      TEXT REFERENCES assets(id) ON DELETE SET NULL,
+    category    TEXT,
+    position    INTEGER NOT NULL DEFAULT 0,
+    status      TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('live', 'draft', 'hidden')),
+    note        TEXT NOT NULL DEFAULT '',
+    rights      TEXT NOT NULL DEFAULT '{}' CHECK (json_typeof(rights::json) = 'object'),
+    duration_ms INTEGER,
+    fit         TEXT NOT NULL DEFAULT 'cover' CHECK (fit IN ('cover', 'contain')),
+    created_at  BIGINT NOT NULL,
+    updated_at  BIGINT NOT NULL,
+    op          TEXT
+  );
+  CREATE UNIQUE INDEX song_videos_op ON song_videos(op) WHERE op IS NOT NULL;
+  CREATE INDEX song_videos_position ON song_videos(position);
+  `,
 ];
 
 /** the schema this code brings a database to; a backup of a later one is not restored here */
@@ -666,7 +690,7 @@ export const SCHEMA_LATEST = MIGRATIONS.length;
 /** the tables, parents before children: the order a copy is written in */
 export const TABLES = ["meta", "assets", "words", "word_audio", "sets", "set_words", "capabilities", "games", "categories",
   "releases", "channels", "documents", "document_history", "jobs", "packs", "road_slides", "mascots", "songs",
-  "admins", "accounts", "progress_backups", "audit", "fonts", "palettes"] as const;
+  "admins", "accounts", "progress_backups", "audit", "fonts", "palettes", "song_videos"] as const;
 /** the tables whose id the database counts: after a copy, the counter goes past the copied ids */
 export const IDENTITY = ["releases", "document_history", "audit"] as const;
 /**
@@ -675,7 +699,7 @@ export const IDENTITY = ["releases", "document_history", "audit"] as const;
  * A new table gets a line here (and in TABLES).
  */
 export const TABLE_SINCE: Partial<Record<(typeof TABLES)[number], number>> = {
-  admins: 4, accounts: 4, progress_backups: 4, audit: 4, fonts: 5, palettes: 6,
+  admins: 4, accounts: 4, progress_backups: 4, audit: 4, fonts: 5, palettes: 6, song_videos: 7,
 };
 
 /** the lock a running server holds for as long as it runs (`owner.ts`); the migrations' is WRITER_LOCK + 1 */

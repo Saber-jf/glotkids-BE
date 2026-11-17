@@ -19,6 +19,7 @@ import { mascotRoutes } from "./modules/mascots.js";
 import { songRoutes } from "./modules/songs.js";
 import { fontRoutes } from "./modules/fonts.js";
 import { paletteRoutes } from "./modules/palettes.js";
+import { songVideoRoutes } from "./modules/songvideos.js";
 import { vocabRoutes } from "./modules/vocab.js";
 import { inventoryRoutes, latestInventory, loadInventories } from "./modules/inventory.js";
 import { releaseRoutes, channelsOut } from "./modules/releases.js";
@@ -107,6 +108,7 @@ export async function buildApp(opts: { logStream?: NodeJS.WritableStream } = {})
     await api.register(songRoutes);
     await api.register(fontRoutes);
     await api.register(paletteRoutes);
+    await api.register(songVideoRoutes);
     await api.register(inventoryRoutes);
     await api.register(releaseRoutes);
     await api.register(appRoutes);

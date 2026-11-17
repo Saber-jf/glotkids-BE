@@ -380,7 +380,7 @@ export async function assetUsage(id: string): Promise<Use[]> {
 export async function usageIndex(): Promise<Map<string, Use[]>> {
   const out = new Map<string, Use[]>();
   const add = (id: string | null | undefined, u: Use) => { if (id) out.set(id, [...(out.get(id) ?? []), u]); };
-  const [words, audio, games, cats, slides, mascots, songs, fonts, studio] = await Promise.all([
+  const [words, audio, games, cats, slides, mascots, songs, fonts, films, studio] = await Promise.all([
     all<{ id: string; en: string; icon: string | null }>("SELECT id, en, icon FROM words WHERE icon IS NOT NULL"),
     all<{ word_id: string; slot: string; asset: string }>("SELECT word_id, slot, asset FROM word_audio"),
     all<{ id: string; name: string; icon: string | null }>("SELECT id, name, icon FROM games WHERE icon IS NOT NULL"),
@@ -390,6 +390,7 @@ export async function usageIndex(): Promise<Map<string, Use[]>> {
     all<{ id: string; name: string; base: string | null; look: string | null; sets: string }>("SELECT id, name, base, look, sets FROM mascots"),
     all<{ id: string; title: string; takes: string; chosen: string | null }>("SELECT id, title, takes, chosen FROM songs"),
     all<{ id: string; name: string; role: string; asset: string | null }>("SELECT id, name, role, asset FROM fonts"),
+    all<{ id: string; title: string; video: string | null; poster: string | null }>("SELECT id, title, video, poster FROM song_videos"),
     studioDoc(),
   ]);
   for (const r of words) add(r.icon, { kind: "word-icon", ref: r.id, text: `${r.en} resmi` });
@@ -416,6 +417,10 @@ export async function usageIndex(): Promise<Map<string, Use[]>> {
       if (a !== r.chosen) add(a, { kind: "song-take", ref: r.id, text: `Müzik · ${r.title} denemesi`, archive: true });
   }
   for (const r of fonts) add(r.asset, { kind: "font", ref: r.id, text: `Yazı tipi · ${r.name || r.id} (${r.role})` });
+  for (const r of films) {
+    add(r.video, { kind: "song-video", ref: r.id, text: `Şarkı videosu · ${r.title}` });
+    add(r.poster, { kind: "song-video-poster", ref: r.id, text: `Şarkı videosu · ${r.title} kapağı` });
+  }
   for (const [id, uses] of studioRefs(studio)) for (const u of uses) add(id, u);
   return out;
 }
